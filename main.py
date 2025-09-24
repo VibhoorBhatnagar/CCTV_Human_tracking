@@ -1,55 +1,101 @@
 # main.py
-import threading
-import time
-import json
-import argparse
-import yaml
 import cv2
-import numpy as np
+import yaml
 import redis
+import json
+import threading
+import numpy as np
 from detector import Detector
-from tracker import Sort
-from reid import ReIDExtractor
+from tracker import Tracker
+from reid import ReID
 
+def process_camera(camera_config, detector, tracker, reid, redis_client):
+    """Process a single camera stream, detect, track, and emit events to Redis."""
+    camera_id = camera_config['id']
+    rtsp_url = camera_config['rtsp_url']
+    cap = cv2.VideoCapture(rtsp_url)
+    if not cap.isOpened():
+        print(f"Error: Could not open RTSP stream {rtsp_url}")
+        return
 
-# utility: crop and clamp
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print(f"End of stream or error reading frame from {rtsp_url}")
+            break
 
+        # Detect people
+        detections = detector.detect(frame)
 
-def crop_and_clamp(frame, bbox):
-h, w = frame.shape[:2]
-x1,y1,x2,y2 = bbox
-x1 = max(0, x1); y1 = max(0,y1); x2 = min(w-1,x2); y2 = min(h-1,y2)
-if x2<=x1 or y2<=y1:
-return None
-return frame[y1:y2, x1:x2]
+        # Update tracker
+        tracks = tracker.update(detections)
 
+        # Process tracks and emit events
+        for track_id, bbox in tracks:
+            x1, y1, x2, y2 = map(int, bbox)
+            crop = frame[y1:y2, x1:x2]
+            embedding = reid.extract_embedding(crop)
+            event = {
+                'camera_id': camera_id,
+                'local_id': track_id,
+                'timestamp': cv2.getTickCount() / cv2.getTickFrequency(),
+                'bbox': [x1, y1, x2, y2],
+                'embedding': embedding.tolist()
+            }
+            redis_client.publish('tracking_events', json.dumps(event))
 
-class CameraWorker(threading.Thread):
-def __init__(self, cam_conf, detector, tracker, reid, redis_client, cfg, events_file_handle=None):
-threading.Thread.__init__(self)
-self.cam_id = cam_conf['id']
-self.url = cam_conf['url']
-self.detector = detector
-self.tracker = tracker
-self.reid = reid
-self.redis = redis_client
-self.stream_key = cfg['redis']['stream_key']
-self.device = cfg['runtime']['device']
-self.stop_flag = False
-self.events_file = events_file_handle
-self.emb_every = cfg['reid']['embedding_every_n_frames']
-self.frame_idx = 0
-self.min_track_len = cfg['tracking']['min_track_len']
+            # Draw bbox and ID
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(frame, f"ID {track_id}", (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
+        # Display frame
+        cv2.imshow(f"Camera {camera_id}", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-def run(self):
-cap = cv2.VideoCapture(self.url)
-if not cap.isOpened():
-print(f"Failed to open camera {self.cam_id} url={self.url}")
-return
-print(f"Started camera {self.cam_id}")
-while not self.stop_flag:
-ret, frame = cap.read()
-if not ret:
-time.sleep(0.1)
-continue
+    cap.release()
+    cv2.destroyWindow(f"Camera {camera_id}")
+
+def main():
+    # Load config
+    with open('config.yaml', 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Initialize components
+    detector = Detector(
+        model_path=config['detector']['model_path'],
+        conf_threshold=config['detector']['confidence_threshold'],
+        person_class_id=config['detector']['person_class_id']
+    )
+    tracker = Tracker(
+        max_age=config['tracker']['max_age'],
+        min_hits=config['tracker']['min_hits'],
+        iou_threshold=config['tracker']['iou_threshold']
+    )
+    reid = ReID(model_name=config['reid']['model_name'])
+    redis_client = redis.Redis(
+        host=config['redis']['host'],
+        port=config['redis']['port'],
+        db=config['redis']['db']
+    )
+
+    # Start a thread for each camera
+    threads = []
+    for camera_config in config['cameras']:
+        thread = threading.Thread(
+            target=process_camera,
+            args=(camera_config, detector, tracker, reid, redis_client),
+            daemon=True
+        )
+        threads.append(thread)
+        thread.start()
+
+    # Wait for threads to finish
+    for thread in threads:
+        thread.join()
+
+    cv2.destroyAllWindows()
+    redis_client.close()
+
+if __name__ == "__main__":
+    main()

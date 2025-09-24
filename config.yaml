@@ -1,36 +1,23 @@
 cameras:
-- id: cam1
-url: 0 # or 'rtsp://user:pass@192.168.x.x:554/stream' or file path
-- id: cam2
-url: 1
+  - id: camera1
+    rtsp_url: "rtsp://your_camera1"
+  - id: camera2
+    rtsp_url: "rtsp://your_camera2"
 
+detector:
+  model_path: "yolov8n.pt"
+  confidence_threshold: 0.5
+  person_class_id: 0
 
-redis:
-host: 127.0.0.1
-port: 6379
-stream_key: track_events
-
-
-detection:
-model: yolov8n.pt
-conf_thresh: 0.35
-imgsz: 640
-
-
-tracking:
-min_track_len: 8
-max_age: 30
-iou_threshold: 0.3
-
-
+tracker:
+  max_age: 30
+  min_hits: 3
+  iou_threshold: 0.3
+  
 reid:
-enabled: true
-embedding_every_n_frames: 3
-embedding_size: 512
-
-
-runtime:
-device: cuda # 'cuda' if you have GPU
-display: true
-save_events_to_file: true
-events_file: events.log
+  model_name: "resnet18"
+  
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0

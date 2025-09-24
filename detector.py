@@ -1,31 +1,20 @@
-# detector.py
-from ultralytics import YOLO
+import cv2
 import numpy as np
-
+from ultralytics import YOLO
 
 class Detector:
-def __init__(self, model_path='yolov8n.pt', conf=0.35, imgsz=640, device='cpu'):
-self.model = YOLO(model_path)
-self.conf = conf
-self.imgsz = imgsz
-# ultralytics picks device automatically; you can pass device arg in predict() if needed
+    def __init__(self, model_path, conf_threshold, person_class_id):
+        self.model = YOLO(model_path)
+        self.conf_threshold = conf_threshold
+        self.person_class_id = person_class_id
 
-
-def detect(self, frame):
-# frame: BGR numpy array (OpenCV)
-# returns list of [x1,y1,x2,y2,score]
-results = self.model(frame, imgsz=self.imgsz, conf=self.conf, classes=[0])
-out = []
-# results may contain multiple result objects depending on batch; handle generically
-for r in results:
-boxes = r.boxes
-if boxes is None:
-continue
-# boxes.xyxy, boxes.conf
-xyxy = boxes.xyxy.cpu().numpy() if hasattr(boxes, 'xyxy') else boxes.data.cpu().numpy()
-confs = boxes.conf.cpu().numpy() if hasattr(boxes, 'conf') else None
-for i, b in enumerate(xyxy):
-x1, y1, x2, y2 = map(int, b[:4])
-score = float(b[4]) if b.shape[0] > 4 else (float(confs[i]) if confs is not None else 1.0)
-out.append([x1, y1, x2, y2, score])
-return out
+    def detect(self, frame):
+        """Run YOLOv8 detection on a frame, return person bounding boxes."""
+        results = self.model(frame, classes=[self.person_class_id], conf=self.conf_threshold)
+        boxes = []
+        for result in results:
+            for box in result.boxes:
+                xyxy = box.xyxy[0].cpu().numpy()
+                conf = box.conf.cpu().numpy()
+                boxes.append([xyxy[0], xyxy[1], xyxy[2], xyxy[3], conf])
+        return np.array(boxes, dtype=np.float32) if boxes else np.empty((0, 5), dtype=np.float32)
