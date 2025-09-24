@@ -1,0 +1,9 @@
+opencv-python-headless>=4.7.0
+ultralytics>=8.0.0
+numpy>=1.23
+torch>=1.12
+torchvision>=0.13
+redis>=4.5
+pyyaml>=6.0
+scipy>=1.9
+filterpy>=1.4.5
