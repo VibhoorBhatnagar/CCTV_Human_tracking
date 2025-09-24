@@ -1,0 +1,36 @@
+cameras:
+- id: cam1
+url: 0 # or 'rtsp://user:pass@192.168.x.x:554/stream' or file path
+- id: cam2
+url: 1
+
+
+redis:
+host: 127.0.0.1
+port: 6379
+stream_key: track_events
+
+
+detection:
+model: yolov8n.pt
+conf_thresh: 0.35
+imgsz: 640
+
+
+tracking:
+min_track_len: 8
+max_age: 30
+iou_threshold: 0.3
+
+
+reid:
+enabled: true
+embedding_every_n_frames: 3
+embedding_size: 512
+
+
+runtime:
+device: cuda # 'cuda' if you have GPU
+display: true
+save_events_to_file: true
+events_file: events.log
